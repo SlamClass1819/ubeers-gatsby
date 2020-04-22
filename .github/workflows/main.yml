@@ -1,0 +1,80 @@
+# This workflow will do a clean install of node dependencies, build the source code and run tests across different versions of node
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-nodejs-with-github-actions
+
+name: Restart
+
+# Sur un événement "push" sur la branche production
+on: repository_dispatch
+
+# Création de notre job deploy
+jobs:
+  build:
+    # On sélectionne un ubuntu
+    runs-on: ubuntu-latest
+    env:
+      GHOST_URI: ${{ secrets.GHOST_URI }}
+      GHOST_TOKEN: ${{ secrets.GHOST_TOKEN }}
+      STRAPI_URI: ${{ secrets.STRAPI_URI }}
+
+    steps:
+      # On utilise une action de Github pour récupérer le repo local
+      - uses: actions/checkout@v2
+
+      # Utilisation de notre version de node
+      - name: Use Node.js 12.16.1
+        uses: actions/setup-node@v1
+        with:
+          node-version: 12.16.1
+
+      - name: Build Gatsby
+        run: |
+          git fetch --prune --unshallow
+          git checkout production
+          npm install
+          npm run build
+
+      # Création d'un artifacts
+      - name: Archive build artifacts
+        uses: actions/upload-artifact@v1
+        with:
+          name: public
+          path: ./public/
+
+  deploy:
+    needs: [build]
+    # On sélectionne un ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+      # On utilise une action de Github pour récupérer le repo local
+      - uses: actions/checkout@v2
+
+      # Utilisation de notre version de node
+      - name: Use Node.js 12.16.1
+        uses: actions/setup-node@v1
+        with:
+          node-version: 12.16.1
+
+      # Récupération du build
+      - uses: actions/download-artifact@master
+        with:
+          name: public
+          path: ./public/
+
+      # Récupération de l'ensemble des commits du repository. Par défaut, le clone ne récupére pas un historique profond. Or pour Clever Cloud, c'est indispensable
+      - name: Run git commands
+        run: |
+          git fetch --prune --unshallow
+          git checkout production
+          git config --global user.email cois.tony@gmail.com
+          git config --global user.name TonyCois
+          git add --force ./public/
+          git commit -m 'gatsby build prepare to deploy'
+
+      # Installation de clever-tools and deploy app
+      - name: Instal and Deploy to Clever
+        run: |
+          npm install -g clever-tools
+          clever login --token ${{ secrets.CLEVER_TOKEN }} --secret ${{ secrets.CLEVER_SECRET }}
+          clever link ${{ secrets.CLEVER_APP_ID }} --alias ubeers-strapi
+          clever deploy --branch production --force
